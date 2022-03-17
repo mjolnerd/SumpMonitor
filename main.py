@@ -1,7 +1,7 @@
 import gc
 
 from machine import Pin, ADC
-from time import sleep
+from time import sleep_ms
 from time import gmtime
 from time import ticks_ms
 from time import ticks_add
@@ -12,33 +12,7 @@ try:
 except:
   import socket
 
-def sample_etape():
-    etape = ADC(Pin(36)) #PIN 4 on wESP32 GPIO
-    etape.atten(ADC.ATTN_11DB)
-
-    # Average several readings over a given period
-    sample_period = 1 # seconds
-    sample_quantity = 10
-    sample_delay = sample_period / sample_quantity
-    samples = []
-    # Gather samples
-    for x in range(sample_quantity):
-        samples.append(etape.read())
-        sleep(sample_delay)
-
-    #Average samples
-    avg = sum(samples) / len(samples)
-    return avg
-
-    #rough convert
-    #  5cm 2544
-    # 60cm 3670
-    #ratio = (60 - 5) / (3670 - 2544)
-    #cm_maybe = avg * ratio - 114
-    #return (cm_maybe, avg, ratio)
-
 def gen_html(timestamp, reading):
-    #html = f'<!DOCTYPE html><html><body><p>{timestamp},{round(reading,1)}</p></body></html>'
     html = f'{timestamp},{round(reading,1)}'
     return html
 
@@ -48,15 +22,31 @@ def iso8601():
 
 def main():
 
+    # Oscar lends a hand
     gc.collect()
     gc.enable()
 
-    # Reading update cadence (milliseconds)
-    sample_delay = 20 * 1000
-    sample_tick = ticks_add(ticks_ms(), sample_delay)
-    #get an initial sample
-    this_reading = sample_etape()
+    # Sensor pin setup
+    etape = ADC(Pin(36)) #PIN 4 on wESP32 GPIO
+    etape.atten(ADC.ATTN_11DB)
 
+    # Reading update cadence (milliseconds)
+    sample_delay = 5 * 1000
+    sample_tick = ticks_add(ticks_ms(), sample_delay)
+
+    # Create and prime our moving average for etape
+    etape_window = 10
+    etape_index = 0
+    etape_readings = []
+    for etape_index in range(0, etape_window):
+        etape_readings.append(etape.read())
+        print(f'{iso8601()} PRIME ARRAY {etape_index} {etape_readings[etape_index]}')
+        sleep_ms(sample_delay)
+    print(etape_index)
+    print(etape_readings)
+    etape_index = (etape_index + 1) % etape_window
+    print(etape_index)
+    # Open up a port to exfiltrate our sensor data onto the network
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind(('', 80))
     s.listen(5)
@@ -64,18 +54,26 @@ def main():
 
     while True:
         if ticks_diff(sample_tick, ticks_ms()) < 0:
-            this_reading = sample_etape()
-            print(f'{iso8601()} READING {this_reading}')
+            etape_readings[etape_index] = etape.read()
+            ### So this loop blocks on s.accept(),  we may need to come up with something
+            ###  threaded to make this moving average thing work well.
+            #etape_avg = sum(etape_readings) / etape_window
+            etape_avg = etape_readings[etape_index]
+            print(f'{iso8601()} READING {etape_readings[etape_index]}')
+            etape_index = (etape_index + 1) % etape_window
+            # Create the new html page
+            html_out = gen_html(iso8601(), etape_avg)
+            # Set a time to run this again
+            sample_tick = ticks_add(ticks_ms(), sample_delay)
             #hose out the stalls
             gc.collect()
 
+        # We have incoming connection, ready the data!
         conn, addr = s.accept()
         print(f'{iso8601()} CONNECT {str(addr)}')
         request = conn.recv(1024)
         request = str(request)
         print(f'{iso8601()} REQUEST {request}')
-        timestamp = iso8601()
-        html_out = gen_html(timestamp, this_reading)
         conn.send('HTTP/1.1 200 OK\n')
         conn.send('Content-Type: text/html\n')
         conn.send('Connection: close\n\n')
