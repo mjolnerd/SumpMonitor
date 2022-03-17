@@ -1,53 +1,70 @@
-# Complete project details at https://RandomNerdTutorials.com
+from machine import Pin, ADC
+from time import sleep
+from time import gmtime
 
 try:
   import usocket as socket
 except:
   import socket
 
-from machine import Pin
+def sample_etape():
+    etape = ADC(Pin(36)) #PIN 4 on wESP32 GPIO
+    etape.atten(ADC.ATTN_11DB)
 
-import gc
-gc.collect()
+    # Average several readings over a given period
+    sample_period = 1 # seconds
+    sample_quantity = 10
+    sample_delay = sample_period / sample_quantity
+    samples = []
+    # Gather samples
+    for x in range(sample_quantity):
+        samples.append(etape.read())
+        sleep(sample_delay)
 
-led = Pin(2, Pin.OUT)
+    #Average samples
+    avg = sum(samples) / len(samples)
+    return avg
 
-def web_page():
-  if led.value() == 1:
-    gpio_state="ON"
-  else:
-    gpio_state="OFF"
-  
-  html = """<html><head> <title>ESP Web Server</title> <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="data:,"> <style>html{font-family: Helvetica; display:inline-block; margin: 0px auto; text-align: center;}
-  h1{color: #0F3376; padding: 2vh;}p{font-size: 1.5rem;}.button{display: inline-block; background-color: #e7bd3b; border: none; 
-  border-radius: 4px; color: white; padding: 16px 40px; text-decoration: none; font-size: 30px; margin: 2px; cursor: pointer;}
-  .button2{background-color: #4286f4;}</style></head><body> <h1>ESP Web Server</h1> 
-  <p>GPIO state: <strong>""" + gpio_state + """</strong></p><p><a href="/?led=on"><button class="button">ON</button></a></p>
-  <p><a href="/?led=off"><button class="button button2">OFF</button></a></p></body></html>"""
-  return html
+    #rough convert
+    #  5cm 2544
+    # 60cm 3670
+    #ratio = (60 - 5) / (3670 - 2544)
+    #cm_maybe = avg * ratio - 114
+    #return (cm_maybe, avg, ratio)
 
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.bind(('', 80))
-s.listen(5)
+def gen_html(timestamp, reading):
+    #html = f'<!DOCTYPE html><html><body><p>{timestamp},{round(reading,1)}</p></body></html>'
+    html = f'{timestamp},{round(reading,1)}'
+    return html
 
-while True:
-  conn, addr = s.accept()
-  print('Got a connection from %s' % str(addr))
-  request = conn.recv(1024)
-  request = str(request)
-  print('Content = %s' % request)
-  led_on = request.find('/?led=on')
-  led_off = request.find('/?led=off')
-  if led_on == 6:
-    print('LED ON')
-    led.value(1)
-  if led_off == 6:
-    print('LED OFF')
-    led.value(0)
-  response = web_page()
-  conn.send('HTTP/1.1 200 OK\n')
-  conn.send('Content-Type: text/html\n')
-  conn.send('Connection: close\n\n')
-  conn.sendall(response)
-  conn.close()
+def iso8601():
+    year, month, day, hour, mins, secs, weekday, yearday = gmtime()
+    return f'{year}-{month:02d}-{day:02}T{hour:02d}:{mins:02d}:{secs:02d}Z'
+
+def main():
+
+    gc.collect()
+    gc.enable()
+
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(('', 80))
+    s.listen(5)
+
+    while True:
+        conn, addr = s.accept()
+        print(f'{iso8601()} CONNECT {str(addr)}')
+        request = conn.recv(1024)
+        request = str(request)
+        print(f'{iso8601()} SENDING {request}')
+        timestamp = iso8601()
+        this_reading = sample_etape()
+        html_out = gen_html(timestamp, this_reading)
+        conn.send('HTTP/1.1 200 OK\n')
+        conn.send('Content-Type: text/html\n')
+        conn.send('Connection: close\n\n')
+        conn.sendall(html_out)
+        conn.close()
+
+if __name__ == "__main__":
+    main()
+
