@@ -1,6 +1,11 @@
+import gc
+
 from machine import Pin, ADC
 from time import sleep
 from time import gmtime
+from time import ticks_ms
+from time import ticks_add
+from time import ticks_diff
 
 try:
   import usocket as socket
@@ -46,18 +51,30 @@ def main():
     gc.collect()
     gc.enable()
 
+    # Reading update cadence (milliseconds)
+    sample_delay = 20 * 1000
+    sample_tick = ticks_add(ticks_ms(), sample_delay)
+    #get an initial sample
+    this_reading = sample_etape()
+
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind(('', 80))
     s.listen(5)
 
+
     while True:
+        if ticks_diff(sample_tick, ticks_ms()) < 0:
+            this_reading = sample_etape()
+            print(f'{iso8601()} READING {this_reading}')
+            #hose out the stalls
+            gc.collect()
+
         conn, addr = s.accept()
         print(f'{iso8601()} CONNECT {str(addr)}')
         request = conn.recv(1024)
         request = str(request)
-        print(f'{iso8601()} SENDING {request}')
+        print(f'{iso8601()} REQUEST {request}')
         timestamp = iso8601()
-        this_reading = sample_etape()
         html_out = gen_html(timestamp, this_reading)
         conn.send('HTTP/1.1 200 OK\n')
         conn.send('Content-Type: text/html\n')
