@@ -42,10 +42,9 @@ def main():
         etape_readings.append(etape.read())
         print(f'{iso8601()} PRIME ARRAY {etape_index} {etape_readings[etape_index]}')
         sleep_ms(sample_delay)
-    print(etape_index)
-    print(etape_readings)
     etape_index = (etape_index + 1) % etape_window
-    print(etape_index)
+    etape_avg = float(etape_readings[etape_index])
+    html_out = gen_html(iso8601(), etape_avg)
     # Open up a port to exfiltrate our sensor data onto the network
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind(('', 80))
@@ -58,7 +57,7 @@ def main():
             ### So this loop blocks on s.accept(),  we may need to come up with something
             ###  threaded to make this moving average thing work well.
             #etape_avg = sum(etape_readings) / etape_window
-            etape_avg = etape_readings[etape_index]
+            etape_avg = float(etape_readings[etape_index])
             print(f'{iso8601()} READING {etape_readings[etape_index]}')
             etape_index = (etape_index + 1) % etape_window
             # Create the new html page
